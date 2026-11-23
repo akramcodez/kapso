@@ -100,6 +100,31 @@ def init_bank(home_path: str) -> None:
         building.rename(home)
 
 
+DERIVED_INDEX_FILES = ("index/edges.yaml", "index/probe-queue.md")
+
+
+def compile_derived_index(bank_root: Path) -> None:
+    """Recompile the bank's derived index from its cards: the edges (typed
+    fields + body refs) and the probe queue (§5.1, VoI-ranked open probes
+    the push rider serves under the probe budget)."""
+    bank = Bank(str(bank_root))
+    edges = []
+    for name, card in sorted(bank.cards.items()):
+        for other in card.frontmatter.get("contradicts") or []:
+            edges.append({"from": name, "to": str(other), "type": "contradicts"})
+        supersedes = card.frontmatter.get("supersedes")
+        for parent in supersedes if isinstance(supersedes, list) else []:
+            edges.append({"from": name, "to": str(parent), "type": "supersedes"})
+        for ref in extract_refs(card.body):
+            if ref.startswith(("insights/", "procedures/", "/insights/", "/procedures/")):
+                edges.append({"from": name, "to": ref.lstrip("/"), "type": "reference"})
+    index_dir = Path(bank_root) / "index"
+    index_dir.mkdir(exist_ok=True)
+    with open(index_dir / "edges.yaml", "w") as handle:
+        yaml.safe_dump(edges, handle, sort_keys=False)
+    (index_dir / "probe-queue.md").write_text(compile_probe_queue(bank))
+
+
 def _tokens(text: str) -> set:
     return set(_WORD_PATTERN.findall(text.lower()))
 
@@ -774,27 +799,9 @@ exit "$status"
     # ------------------------------------------------------------- closing
 
     def _rebuild_derived(self, run_dir: Path, lr_id: str) -> None:
-        """The frame, not agents, recompiles the derived index (edges from
-        typed fields + body refs) and appends the log.md journal line."""
-        bank = Bank(str(run_dir / "bank"))
-        edges = []
-        for name, card in sorted(bank.cards.items()):
-            for other in card.frontmatter.get("contradicts") or []:
-                edges.append({"from": name, "to": str(other), "type": "contradicts"})
-            supersedes = card.frontmatter.get("supersedes")
-            for parent in supersedes if isinstance(supersedes, list) else []:
-                edges.append({"from": name, "to": str(parent), "type": "supersedes"})
-            for ref in extract_refs(card.body):
-                if ref.startswith(("insights/", "procedures/", "/insights/", "/procedures/")):
-                    edges.append({"from": name, "to": ref.lstrip("/"),
-                                  "type": "reference"})
-        index_dir = run_dir / "bank" / "index"
-        index_dir.mkdir(exist_ok=True)
-        with open(index_dir / "edges.yaml", "w") as handle:
-            yaml.safe_dump(edges, handle, sort_keys=False)
-        # The probe queue (§5.1): VoI-ranked open probes, recompiled each
-        # batch — the push rider serves from it under the probe budget.
-        (index_dir / "probe-queue.md").write_text(compile_probe_queue(bank))
+        """The frame, not agents, recompiles the derived index and appends
+        the log.md journal line."""
+        compile_derived_index(run_dir / "bank")
 
         headline_path = run_dir / "work" / "headline.md"
         headline = headline_path.read_text().strip().splitlines()

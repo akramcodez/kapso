@@ -244,26 +244,6 @@ def has_origin(home: Path) -> bool:
     return origin.returncode == 0
 
 
-def pull_home(home: Path) -> None:
-    """`kapso experience update`: `mine` with a remote attached takes the
-    remote's main, so the team's lessons are served next; a history that
-    does not fast-forward is an error in git's words."""
-    origin = subprocess.run(
-        ["git", "-C", str(home), "remote", "get-url", "origin"], capture_output=True, text=True,
-    )
-    if origin.returncode != 0:
-        return
-    pulled = subprocess.run(
-        ["git", "-C", str(home), "fetch", "--quiet", "origin", "main:main"],
-        capture_output=True, text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-    )
-    if pulled.returncode != 0:
-        raise ExperienceError(
-            f"your bank at {home} could not take the remote's main ({origin.stdout.strip()}):\n"
-            f"{pulled.stderr.strip()}\nResolve it in the bank, then load again."
-        )
-
-
 def count_cards(home: Path, head: str) -> int:
     """The card files at the pinned head: `insights/*.md` and
     `procedures/*.md` but each directory's index."""

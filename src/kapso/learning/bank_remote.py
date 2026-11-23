@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 
-def _git_env() -> dict:
+def git_env() -> dict:
     env = dict(os.environ)
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
@@ -22,7 +22,7 @@ def bank_origin(home: Path) -> Optional[str]:
     documented local-only state)."""
     result = subprocess.run(
         ["git", "--git-dir", str(home), "remote", "get-url", "origin"],
-        capture_output=True, text=True, env=_git_env(),
+        capture_output=True, text=True, env=git_env(),
     )
     if result.returncode != 0:
         return None
@@ -35,7 +35,7 @@ def bank_remote_error(home: Path, url: str) -> Optional[str]:
     a remote can be checked before it is attached."""
     result = subprocess.run(
         ["git", "--git-dir", str(home), "ls-remote", url],
-        capture_output=True, text=True, env=_git_env(), timeout=60,
+        capture_output=True, text=True, env=git_env(), timeout=60,
     )
     if result.returncode != 0:
         return result.stderr.strip()
@@ -57,9 +57,9 @@ def connect_bank(home: Path, url: str) -> None:
     subcommand = "set-url" if bank_origin(home) else "add"
     subprocess.run(
         ["git", "--git-dir", str(home), "remote", subcommand, "origin", url],
-        check=True, env=_git_env(),
+        check=True, env=git_env(),
     )
     subprocess.run(
         ["git", "--git-dir", str(home), "push", "origin", "main", "--tags"],
-        check=True, env=_git_env(),
+        check=True, env=git_env(),
     )

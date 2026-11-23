@@ -24,6 +24,7 @@ from kapso.harness.export import HarnessExportError
 from kapso.harness.load import HarnessError
 from kapso.harness.manifest import ManifestError
 from kapso.harness.reference import HarnessReferenceError
+from kapso.learning.bank_sync import BankSyncError
 
 ENGINE_ERRORS = (
     BriefError,
@@ -35,6 +36,7 @@ ENGINE_ERRORS = (
     ManifestError,
     ExperienceError,
     ExperienceReferenceError,
+    BankSyncError,
     IngestError,
     EvaluationIntegrityError,
     PreflightError,

@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 import kapso.core.preflight as preflight
+import kapso.kapso as kapso_module
 from kapso.core.preflight import PreflightError
 from kapso.kapso import Kapso
 from kapso.learning.bank_remote import connect_bank
@@ -274,6 +275,50 @@ def test_learn_pushes_to_connected_origin(tmp_path, monkeypatch):
                          trajectory_id="facade-task/20260824T000000_t2")
 
     assert lesson.metadata["pushed"] is True
+    remote_head = subprocess.run(
+        ["git", "--git-dir", str(share), "rev-parse", "main"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert remote_head == lesson.bank_head_after
+
+
+def test_learn_merges_a_teammate_lesson_pushed_during_the_run(tmp_path, monkeypatch):
+    # Regression (#245): a teammate's push between learn() start and its
+    # push made the push non-fast-forward and learn() raised with no
+    # LessonResult. Now the lesson merges with the teammate's and the
+    # remote holds both cards; the result names only this lesson's card.
+    config_path = facade_config(tmp_path)
+    seed_bank_home(tmp_path, {"seed-card": card_text("seed-card")})
+    kapso = Kapso(config=config_path)
+    stub_chain(monkeypatch, kapso._bank_home, lesson_commit_message="lesson: mine")
+    share = tmp_path / "share.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(share)], check=True)
+    connect_bank(kapso._bank_home, str(share))
+    teammate = tmp_path / "teammate"
+    subprocess.run(["git", "clone", "-q", str(share), str(teammate)], check=True)
+    (teammate / "insights" / "teammate-card.md").write_text(card_text("teammate-card"))
+    subprocess.run(["git", "-C", str(teammate), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(teammate), "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-q", "-m", "teammate lesson"], check=True)
+    fake_update = kapso_module.UpdateFrame
+    crew_run = fake_update.run_update
+
+    def teammate_pushes_first(self, *args, **kwargs):
+        subprocess.run(["git", "-C", str(teammate), "push", "-q", "origin", "main"], check=True)
+        return crew_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(fake_update, "run_update", teammate_pushes_first)
+
+    lesson = kapso.learn(str(make_campaign_dir(tmp_path)),
+                         trajectory_id="facade-task/20260824T000000_t3")
+
+    assert lesson.metadata["pushed"] is True
+    assert lesson.cards_created == ["facade-test-card"]
+    remote_cards = subprocess.run(
+        ["git", "--git-dir", str(share), "ls-tree", "--name-only", "main:insights"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert {"facade-test-card.md", "teammate-card.md"} <= set(remote_cards)
     remote_head = subprocess.run(
         ["git", "--git-dir", str(share), "rev-parse", "main"],
         capture_output=True, text=True, check=True,

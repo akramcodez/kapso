@@ -73,11 +73,9 @@ from kapso.experience import (
     ExperienceSource,
     ExperienceStore,
     IndexRecord,
-    bank_head,
     has_origin,
     probe_hosted_gate,
     parse_experience_reference,
-    pull_home,
     recorded_reference,
     resolve_source,
 )
@@ -138,6 +136,7 @@ from kapso.learning.serving_launch import (
 )
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
 from kapso.learning.bank_remote import bank_origin, connect_bank
+from kapso.learning.bank_sync import sync_bank
 from kapso.learning.update_frame import UpdateFrame, init_bank
 
 from kapso.deployment import DeployError, Software
@@ -506,9 +505,10 @@ class Kapso:
 
     def update_experience(self, ref: Optional[str] = None) -> None:
         """The network step loading never takes: `mine` takes its remote's
-        main (fast-forward; a history that does not is an error in git's
-        words), a bank you read at a moving reference is fetched again,
-        a tag or a commit never moves. `None` updates every bank on this
+        main (fast-forward, or a merge when both sides have lessons; a card
+        both changed is an error that leaves the bank as it was), a bank
+        you read at a moving reference is fetched again, a tag or a commit
+        never moves. `None` updates every bank on this
         machine. A campaign keeps the pin it launched with whatever moves
         here; an index is what `add` made (remove it and add it again)."""
         store = ExperienceStore(self._experience_settings["banks"], self._experience_settings["indexes"])
@@ -530,10 +530,18 @@ class Kapso:
                 elif not has_origin(home):
                     print(f"{MINE}: no remote (`kapso experience share <url>`), nothing to pull")
                 else:
-                    before = bank_head(home)
-                    pull_home(home)
-                    after = bank_head(home)
-                    print(f"{MINE}: {'at ' + after[:12] + ', up to date' if after == before else f'now at {after[:12]} (was {before[:12]})'}")
+                    synced = sync_bank(home)
+                    moved = f"now at {synced.after[:12]} (was {synced.before[:12]})"
+                    unpushed = (
+                        f"{synced.unpushed} commit(s) are not on the remote yet; the next lesson pushes them, "
+                        f"or `kapso experience share {bank_origin(home)}` now"
+                    )
+                    print(f"{MINE}: " + {
+                        "even": f"at {synced.after[:12]}, up to date",
+                        "pulled": moved,
+                        "ahead": f"at {synced.after[:12]}; {unpushed}",
+                        "merged": f"merged the remote's lessons with yours, {moved}; {unpushed}",
+                    }[synced.state])
             elif reference.kind == "git":
                 moved = store.update(reference)
                 if moved["before"] == moved["after"]:
@@ -777,6 +785,12 @@ class Kapso:
             "learn", self._config,
             bank_home=self._bank_home, push=should_push,
         )
+        if should_push:
+            # The exam and the crew work on the team's bank, not this
+            # machine's last copy of it.
+            synced = sync_bank(self._bank_home)
+            if synced.taken:
+                print(f"took {synced.taken} commit(s) of lessons from {origin}: the bank is at {synced.after[:12]}")
         learning_config = self._config["learning"]
         version = (
             learner_version
@@ -1086,6 +1100,8 @@ class Kapso:
         status.phase("push")
         pushed = False
         if should_push and admitted:
+            # A teammate may have pushed while the crew ran.
+            bank_head_after = sync_bank(self._bank_home).after
             subprocess.run(
                 ["git", "--git-dir", str(self._bank_home), "push", "origin",
                  "main", "--tags"],
